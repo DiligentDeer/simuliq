@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from src.models.protocol import ProtocolDTO
+from src.models.chain import RateLimitExceededException
 
 from web3 import Web3, HTTPProvider
 import pandas as pd
@@ -182,13 +183,6 @@ def decode_reserve_configuration(config_value: int) -> Dict[str, Union[float, bo
             "virtualAccountingEnabled": bool(get_bits(252, 252))
         }
         
-
-class RateLimitExceededException(Exception):
-    """Exception raised for rate limit exceeded (429 Too Many Requests)."""
-    def __init__(self, message: str, retry_after: Optional[int] = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-
 
 @dataclass()
 class AaveProtocolDTO(ProtocolDTO):
