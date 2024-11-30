@@ -1,6 +1,6 @@
 """Simple DTO for token data."""
 from dataclasses import dataclass, field
-from src.models.chain import ChainDTO, RateLimitExceededException, SUPPLY_ABI
+from src.models.chain import ChainDTO, RateLimitExceededException
 
 from web3 import Web3, HTTPProvider
 import pandas as pd
@@ -13,6 +13,10 @@ from functools import lru_cache
 import logging
 
         
+        
+SUPPLY_ABI = [{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]
+
+
 @dataclass()
 class TokenDTO:
     """
