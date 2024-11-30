@@ -13,3 +13,6 @@ class ProtocolDTO:
 
     chain: ChainDTO
     protocol: str
+    
+    def __str__(self):
+        return f"{self.protocol} on {self.chain.network}"
