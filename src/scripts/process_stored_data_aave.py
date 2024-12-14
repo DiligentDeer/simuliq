@@ -4,10 +4,11 @@ import pandas as pd
 import numpy as np
 import logging
 from tqdm import tqdm 
+import json
 from scipy import optimize
 
 FLASHLOAN_ASSET_SYMBOLS = ['USDC', 'USDT', 'DAI', 'WETH']
-
+# FLASHLOAN_ASSET_SYMBOLS = ['WETH']
 
 '''
 "network": network.network,
@@ -137,15 +138,19 @@ def create_health_ratio_data_emode(user_position_df: pd.DataFrame, asset_mapping
             'total_actual_collateral': total_actual_collateral,
             'total_user_debt': total_user_debt
         })
-
-    user_position_df[['total_scaled_collateral', 'total_actual_collateral', 'total_user_debt']] = user_position_df.apply(calculate_user_metrics, axis=1)
-    user_position_df['health_ratio'] = user_position_df['total_scaled_collateral'] / user_position_df['total_user_debt']
-    user_position_df['health_ratio'] = user_position_df['health_ratio'].replace([np.inf, -np.inf], 1e6)
-    user_position_df['health_ratio'] = user_position_df['health_ratio'].fillna(0)
     
-    filtered_data = user_position_df[(user_position_df['total_user_debt'] > 100)]
+    if user_position_df.empty:
+        # print("No users found in user_position_df")
+        return pd.DataFrame()
+    else:  
+        user_position_df[['total_scaled_collateral', 'total_actual_collateral', 'total_user_debt']] = user_position_df.apply(calculate_user_metrics, axis=1)
+        user_position_df['health_ratio'] = user_position_df['total_scaled_collateral'] / user_position_df['total_user_debt']
+        user_position_df['health_ratio'] = user_position_df['health_ratio'].replace([np.inf, -np.inf], 1e6)
+        user_position_df['health_ratio'] = user_position_df['health_ratio'].fillna(0)
+        
+        filtered_data = user_position_df[(user_position_df['total_user_debt'] > 100)]
 
-    return filtered_data
+        return filtered_data
 
 
 def create_liquidatable_user_data(health_ratio_df: pd.DataFrame) -> Tuple[Dict[str, float], Dict[str, float]]:
@@ -197,20 +202,49 @@ def derived_func(x, r, k, c):
         return 0
     
     
-def find_x(y_target, r, k, c):
-    if r == 0 or k == 0 or c == 0:
-        logging.warning(f"Invalid parameters in find_x: r={r}, k={k}, c={c}")
-        return 0
+# def find_x(y_target, r, k, c):
+#     if r == 0 or k == 0 or c == 0:
+#         logging.warning(f"Invalid parameters in find_x: r={r}, k={k}, c={c}")
+#         return 0
     
-    def objective(x):
-        return abs(derived_func(x, r, k, c) - y_target)
+#     def objective(x):
+#         return abs(derived_func(x, r, k, c) - y_target)
     
-    try:
-        result = optimize.minimize_scalar(objective, method='brent')
-        return result.x
-    except Exception as e:
-        logging.error(f"Error in find_x: {str(e)}, y_target={y_target}, r={r}, k={k}, c={c}")
-        return 0
+#     try:
+#         result = optimize.minimize_scalar(objective, method='brent')
+#         return result.x
+#     except Exception as e:
+#         logging.error(f"Error in find_x: {str(e)}, y_target={y_target}, r={r}, k={k}, c={c}")
+#         return 0
+
+def find_x(y_target, r, k, c, max_iterations=100, tolerance=1e-10): # Newton's method implementation to find x.
+    """Newton's method implementation to find x."""
+    def f(x):
+        return derived_func(x, r, k, c) - y_target
+        
+    def df(x):
+        # Numerical derivative
+        h = 1e-7
+        return (f(x + h) - f(x)) / h
+    
+    # Initial guess
+    x = y_target / r  # Simple initial guess
+    
+    for _ in range(max_iterations):
+        fx = f(x)
+        if abs(fx) < tolerance:
+            return x
+            
+        dfx = df(x)
+        if dfx == 0:
+            break
+            
+        x = x - fx/dfx
+        
+        if x <= 0:  # Keep x positive
+            x = tolerance
+            
+    return x
     
     
 def create_liquidations_v2(
@@ -228,6 +262,8 @@ def create_liquidations_v2(
                                 ):
         
         flashloan_start = 0
+        
+        # print(json.dumps(total_liquidatable_debt, indent=4))
         
         for asset, debt in total_liquidatable_debt.items():
             if debt*flashloan_asset_price > 10:
@@ -257,6 +293,8 @@ def create_liquidations_v2(
         
         flashloan_end = 0
         
+        # print(json.dumps(total_liquidatable_collateral, indent=4))
+        
         for asset, collateral in total_liquidatable_collateral.items():
             if collateral*flashloan_asset_price > 10:
                 if asset == flashloan_asset:
@@ -285,6 +323,9 @@ def create_liquidations_v2(
             flashloan_start = compute_flashloan_start(total_liquidatable_debt, flashloan_asset, asset_mapping[flashloan_asset]['price'])
             flashloan_end = compute_flashloan_end(total_liquidatable_collateral, flashloan_asset, asset_mapping[flashloan_asset]['price'])
             
+            print(json.dumps(total_liquidatable_collateral, indent=4))
+            print(json.dumps(total_liquidatable_debt, indent=4))
+                        
             flashloan_profit = (flashloan_end - flashloan_start) * asset_mapping[flashloan_asset]['price']
             
             liq_dict = {
@@ -301,14 +342,15 @@ def create_liquidations_v2(
             liquidations.append(liq_dict)
             # logging.info(f"Added liquidation for {flashloan_asset}: profit_usd = {liq_dict['flashloan_profit_usd']}")
     
+    
+    print(json.dumps(liquidations, indent=4))
+    print("*"*100)
+    
     if not liquidations:
         logging.info("No profitable liquidations found")
         return None
     
     max_profit_dict = max(liquidations, key=lambda x: x['flashloan_profit_usd'])
-    # logging.info(f"Most profitable liquidation dict found")
-    
-    print(max_profit_dict)
     
     return max_profit_dict
 
@@ -446,6 +488,9 @@ def scale_supply_and_create_liquidations(
     for scale in scale_series:
         scaled_collateral = scale_total_liquidatable_collateral(total_liquidatable_collateral, scale)
         scaled_debt = scale_total_liquidatable_debt(total_liquidatable_debt, scale)
+        
+        # print(json.dumps(scaled_collateral, indent=4))
+        # print(json.dumps(scaled_debt, indent=4))
         
         liquidations = create_liquidations_v2(updated_trade_pair_hashmap, asset_mapping, scaled_collateral, scaled_debt)
         

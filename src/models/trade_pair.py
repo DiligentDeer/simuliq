@@ -95,17 +95,35 @@ class PairDTO:
     
     
     def __post_init__(self):
+        """Initialize the PairDTO with computed values."""
         self.exchange_price = self.compute_exchange_price()
+        
+        # Initialize with None first
+        self.quotes_df = None
+        self.k = None
+        self.c = None
+        
         if self.exchange_price is not None:
-            self.quotes_df = self.get_quotes_aggregator()
-            self.k, self.c = self.get_function_constants_with_df(self.quotes_df)
-        else:
-            self.k, self.c = None, None
+            # Get quotes and verify we have valid data
+            quotes_df = self.get_quotes_aggregator()
+            if quotes_df is not None and not quotes_df.empty and 'sell_token_amount' in quotes_df.columns:
+                self.quotes_df = quotes_df
+                self.k, self.c = self.get_function_constants_with_df(quotes_df)
             
         # Initialize new values with current values
         self.new_exchange_price = self.exchange_price
         self.new_k = self.k
         self.new_c = self.c
+    
+    def is_valid(self) -> bool:
+        """Check if the PairDTO has all required data."""
+        return all([
+            self.exchange_price is not None,
+            self.quotes_df is not None,
+            not self.quotes_df.empty,
+            self.k is not None,
+            self.c is not None
+        ])
         
     def compute_exchange_price(self) -> Optional[float]:
         
@@ -367,7 +385,7 @@ class PairDTO:
         # print(f"[{sell_token.symbol} -> {buy_token.symbol}] | sell_token.mcap: {sell_token.mcap} | buy_token.mcap: {buy_token.mcap}")
         
         start_amount = (min_mc * 0.0001)/sell_token.price # 1% of the smaller token's TVL
-        end_amount = (min_mc * 0.15)/sell_token.price # 70% of the smaller token's TVL
+        end_amount = (min_mc * 0.10)/sell_token.price # 70% of the smaller token's TVL
 
         amounts = np.geomspace(start_amount, end_amount, num=samples).astype(float).tolist()
 
@@ -376,12 +394,12 @@ class PairDTO:
             try:                
                 new_row = self.paraswap_quote(amount)
                 # new_row2 = self.kyberswap_quote(amount)
-                new_row3 = self.conveyor_finance_quote(amount)  # Adding Conveyor Finance
+                # new_row3 = self.conveyor_finance_quote(amount)  # Adding Conveyor Finance
 
                 # Append quotes to the list
                 new_rows_list.append(new_row)
                 # new_rows_list.append(new_row2)
-                new_rows_list.append(new_row3)
+                # new_rows_list.append(new_row3)
 
             except Exception as e:
                 print(f"Failed to save entry to DB: {e}")

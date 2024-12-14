@@ -11,6 +11,7 @@ import os
 from dotenv import load_dotenv
 from typing import List, Dict, Optional, Union
 from functools import lru_cache
+import json
 import logging
 # chain: ChainDTO
 # protocol: str
@@ -47,7 +48,7 @@ def compute_health_yellow_sl_efficiency(debt,
             effective_band_collateral = band_collateral * soft_liq_efficiency
             collat_value = avg_sell_price * effective_band_collateral
             discounted_collat_value = collat_value * (1 - liq_discount / 100)
-            new_crvusd_value += effective_band_collateral
+            new_crvusd_value += collat_value
         
         else:
             effective_band_collateral = band_collateral
@@ -55,7 +56,6 @@ def compute_health_yellow_sl_efficiency(debt,
             discounted_collat_value = collat_value * (1 - liq_discount / 100)
             new_collateral_value += band_collateral
             
-        
         total_discounted_value += discounted_collat_value
 
     # Calculate healthYellow
@@ -290,9 +290,9 @@ class CurveMintMarketDTO(ProtocolDTO):
         # Find dictionaries with health < 0
         negative_health_prices = [price_dict for price_dict in avg_price if price_dict['health'] < 0]
 
-        # If no prices with negative health found, return None
+        # If no prices with negative health found, return None for all values
         if not negative_health_prices:
-            return None, None, None
+            return None, None, None, None 
 
         # Find the dictionary with maximum new_collateral_value among negative health entries
         max_price_dict = max(negative_health_prices, key=lambda x: x['new_collateral_value'])
@@ -300,39 +300,49 @@ class CurveMintMarketDTO(ProtocolDTO):
         # Return the values from the found dictionary
         max_price = max_price_dict['price']
         max_collateral_value = max_price_dict['new_collateral_value']
+        max_crvusd_value = max_price_dict['new_crvusd_value']
         health = max_price_dict['health']
 
-        return max_price, max_collateral_value, health
+        return max_price, max_collateral_value, max_crvusd_value, health
         
         # return avg_price
         
         
     def compute_price_for_max_hard_liq(self, 
-                                       df_users,
-                                       soft_liq_efficiency):
-        
+                                 df_users,
+                                 soft_liq_efficiency):
+    
         return_list = []
         
         for _, row in df_users.iterrows():
             debt = row['debt']
             return_dict = {}
             
-            max_price, max_collateral_value, health = self.compute_price_for_max_hard_liq_row(row, soft_liq_efficiency)
-            return_dict['index'] = _
-            return_dict['max_price'] = max_price
-            return_dict['max_collateral_value'] = max_collateral_value
-            return_dict['debt'] = debt
-            return_list.append(return_dict)
+            max_price, max_collateral_value, max_crvusd_value, health = self.compute_price_for_max_hard_liq_row(row, soft_liq_efficiency)
+            if max_price is not None:  # Add validation for None values
+                return_dict['index'] = _
+                return_dict['max_price'] = max_price
+                return_dict['max_collateral_value'] = max_collateral_value
+                return_dict['debt'] = debt - max_crvusd_value
+                return_dict['health'] = health
+                
+                return_dict['debt_raw'] = debt
+                return_dict['max_crvusd_value'] = max_crvusd_value
+                
+                return_list.append(return_dict)
             
         return_df = pd.DataFrame(return_list)
         
-            # Group by max_price and sum both max_collateral_value and debt
-        return_df = return_df.groupby('max_price').agg({
+        # Store the raw data before grouping
+        return_df_raw = return_df.copy()
+        
+        # Group by max_price and sum both max_collateral_value and debt
+        return_df_grouped = return_df.groupby('max_price').agg({
             'max_collateral_value': 'sum',
             'debt': 'sum'
         }).reset_index()
         
-        return return_df
+        return return_df_grouped, return_df_raw  # Return both DataFrames
     
     
     

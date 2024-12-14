@@ -1,4 +1,5 @@
 import pandas as pd
+import json
 
 def compute_health_yellow_sl_efficiency(debt, 
                                         collateral, 
@@ -41,6 +42,7 @@ def compute_health_yellow_sl_efficiency(debt,
 
     # Calculate healthYellow
     health_yellow = (total_discounted_value / debt - 1) * 100
+    
     return health_yellow, new_collateral_value, new_crvusd_value
 
 def compute_price_for_max_hard_liq_row(row, market_params, soft_liq_efficiency):
@@ -99,11 +101,10 @@ def compute_price_for_max_hard_liq_row(row, market_params, soft_liq_efficiency):
     # Return the values from the found dictionary
     max_price = max_price_dict['price']
     max_collateral_value = max_price_dict['new_collateral_value']
+    max_crvusd_value = max_price_dict['new_crvusd_value']
     health = max_price_dict['health']
 
-    return max_price, max_collateral_value, health
-    
-    # return avg_price
+    return max_price, max_collateral_value, max_crvusd_value, health
     
     
 def compute_price_for_max_hard_liq(df_wbtc_users,
@@ -116,21 +117,29 @@ def compute_price_for_max_hard_liq(df_wbtc_users,
         debt = row['debt']
         return_dict = {}
         
-        max_price, max_collateral_value, health = compute_price_for_max_hard_liq_row(row, market_params, soft_liq_efficiency)
+        max_price, max_collateral_value, max_crvusd_value, health = compute_price_for_max_hard_liq_row(row, market_params, soft_liq_efficiency)
         return_dict['index'] = _
         return_dict['max_price'] = max_price
         return_dict['max_collateral_value'] = max_collateral_value
-        return_dict['debt'] = debt
+        # return_dict['max_crvusd_value'] = max_crvusd_value
+        return_dict['debt'] = debt - max_crvusd_value
+        
+        return_dict['debt_raw'] = debt
+        return_dict['max_crvusd_value'] = max_crvusd_value
+        
         return_list.append(return_dict)
         
     return_df = pd.DataFrame(return_list)
     
+    # print(json.dumps(return_df.to_dict(), indent=4))
+    
+    
         # Group by max_price and sum both max_collateral_value and debt
-    return_df = return_df.groupby('max_price').agg({
+    return_df_grouped = return_df.groupby('max_price').agg({
         'max_collateral_value': 'sum',
         'debt': 'sum'
     }).reset_index()
     
-    return return_df
+    return return_df_grouped, return_df
     
     
